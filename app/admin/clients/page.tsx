@@ -2,8 +2,11 @@
 
 import { useEffect, useState } from "react"
 import { supabase } from "@/lib/supabase"
+import { useAuthGuard } from "@/lib/useAuthGuard"
 
-export default function AdminClients() {
+export default function AdminClientsPage() {
+  const loading = useAuthGuard("admin")
+
   const [clients, setClients] = useState<any[]>([])
 
   const [form, setForm] = useState({
@@ -15,7 +18,7 @@ export default function AdminClients() {
     numero_carte_pro: ""
   })
 
-  // 🔄 LOAD CLIENTS + CHIENS
+  // 🔄 LOAD CLIENTS
   async function fetchClients() {
     const { data, error } = await supabase
       .from("clients")
@@ -32,28 +35,26 @@ export default function AdminClients() {
 
   // ➕ ADD CLIENT
   async function addClient() {
-    if (!form.nom || !form.prenom) {
+    if (!form.nom.trim() || !form.prenom.trim()) {
       alert("Nom et prénom obligatoires")
       return
     }
 
     const { error } = await supabase.from("clients").insert([
       {
-        nom: form.nom,
-        prenom: form.prenom,
+        nom: form.nom.trim(),
+        prenom: form.prenom.trim(),
         email: form.email,
         telephone: form.telephone,
         type: form.type,
         numero_carte_pro:
-          form.type === "pro"
-            ? form.numero_carte_pro
-            : null
+          form.type === "pro" ? form.numero_carte_pro : null
       }
     ])
 
     if (error) {
       console.log("INSERT ERROR:", error)
-      alert("Erreur ajout client")
+      alert("Erreur ajout client : " + error.message)
       return
     }
 
@@ -71,7 +72,7 @@ export default function AdminClients() {
 
   // ❌ DELETE CLIENT
   async function deleteClient(id: string) {
-    const ok = confirm("Supprimer ce client + ses chiens ?")
+    const ok = confirm("Supprimer ce client ?")
     if (!ok) return
 
     const { error } = await supabase
@@ -81,7 +82,7 @@ export default function AdminClients() {
 
     if (error) {
       console.log("DELETE ERROR:", error)
-      alert("Suppression refusée")
+      alert("Erreur suppression : " + error.message)
       return
     }
 
@@ -92,40 +93,45 @@ export default function AdminClients() {
     fetchClients()
   }, [])
 
+  // 🛡 loading guard
+  if (loading) {
+    return (
+      <main style={{ padding: 30 }}>
+        <p>🔐 Vérification accès admin...</p>
+      </main>
+    )
+  }
+
   return (
     <main style={{ padding: 30 }}>
       <h1>👤 Admin Clients</h1>
 
       {/* ➕ FORM */}
-      <div style={{ marginBottom: 20, padding: 10, border: "1px solid #ccc" }}>
+      <div style={{ marginBottom: 20, border: "1px solid #ccc", padding: 10 }}>
         <h3>Ajouter client</h3>
 
         <input
           placeholder="Nom"
           value={form.nom}
           onChange={(e) => setForm({ ...form, nom: e.target.value })}
-          style={{ display: "block", marginBottom: 10 }}
         />
 
         <input
           placeholder="Prénom"
           value={form.prenom}
           onChange={(e) => setForm({ ...form, prenom: e.target.value })}
-          style={{ display: "block", marginBottom: 10 }}
         />
 
         <input
           placeholder="Email"
           value={form.email}
           onChange={(e) => setForm({ ...form, email: e.target.value })}
-          style={{ display: "block", marginBottom: 10 }}
         />
 
         <input
           placeholder="Téléphone"
           value={form.telephone}
           onChange={(e) => setForm({ ...form, telephone: e.target.value })}
-          style={{ display: "block", marginBottom: 10 }}
         />
 
         <select
@@ -133,7 +139,6 @@ export default function AdminClients() {
           onChange={(e) =>
             setForm({ ...form, type: e.target.value })
           }
-          style={{ display: "block", marginBottom: 10 }}
         >
           <option value="particulier">Particulier</option>
           <option value="pro">Professionnel</option>
@@ -149,14 +154,17 @@ export default function AdminClients() {
                 numero_carte_pro: e.target.value
               })
             }
-            style={{ display: "block", marginBottom: 10 }}
           />
         )}
 
-        <button onClick={addClient}>Ajouter client</button>
+        <button onClick={addClient} style={{ marginTop: 10 }}>
+          Ajouter client
+        </button>
       </div>
 
-      {/* 📋 LISTE */}
+      {/* 📋 LISTE CLIENTS */}
+      <h2>Liste clients</h2>
+
       {clients.length === 0 ? (
         <p>Aucun client</p>
       ) : (
@@ -196,9 +204,10 @@ export default function AdminClients() {
               onClick={() => deleteClient(c.id)}
               style={{
                 marginTop: 10,
+                background: "red",
                 color: "white",
-                backgroundColor: "red",
-                padding: 6
+                padding: 6,
+                cursor: "pointer"
               }}
             >
               Supprimer

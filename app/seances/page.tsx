@@ -1,182 +1,139 @@
 "use client"
 
 import { useEffect, useState } from "react"
-import { supabase } from "@/lib/supabaseClient"
+import Link from "next/link"
+import { supabase } from "../../lib/supabase"
 
-export default function Seances() {
+export default function SeancesPage() {
   const [seances, setSeances] = useState<any[]>([])
-  const [chiens, setChiens] = useState<any[]>([])
-  const [selected, setSelected] = useState<Record<string, string>>({})
 
-  const load = async () => {
-    // 1. séances
-    const { data: seancesData } = await supabase
-      .from("seances")
-      .select("*")
-      .order("date", { ascending: true })
+  async function fetchSeances() {
+    const { data: seancesData, error: seancesError } =
+      await supabase
+        .from("seances")
+        .select("*")
+        .neq("statut", "termine")
+        .order("date", { ascending: true })
 
-    // 2. chiens
-    const { data: chiensData } = await supabase
-      .from("chiens")
-      .select("*")
+    if (seancesError) {
+      console.log("SEANCES ERROR:", seancesError)
+      return
+    }
 
-    // 3. reservations (simple et fiable)
-    const { data: reservationsData } = await supabase
-      .from("reservations")
-      .select("*")
+    // 🔄 ON PREND LES CHIENS MAINTENANT
+    const { data: reservationsData, error: reservationsError } =
+      await supabase
+        .from("reservations")
+        .select("seance_id, chien_id")
 
-    // merge manuel (FIABLE)
-    const merged = (seancesData || []).map((s) => ({
-      ...s,
-      reservations: (reservationsData || []).filter(
-        (r) => r.seance_id === s.id
-      ),
-    }))
+    if (reservationsError) {
+      console.log("RESERVATIONS ERROR:", reservationsError)
+      return
+    }
 
-    setSeances(merged)
-    setChiens(chiensData || [])
+    // 🔥 COMPTE PAR CHIEN (LOGIQUE MÉTIER CORRECTE)
+    const reservationsCount: Record<string, Set<string>> = {}
+
+    reservationsData?.forEach((r: any) => {
+      const key = String(r.seance_id)
+
+      if (!reservationsCount[key]) {
+        reservationsCount[key] = new Set()
+      }
+
+      reservationsCount[key].add(String(r.chien_id))
+    })
+
+    const enriched = (seancesData || []).map((s) => {
+      const key = String(s.id)
+
+      const inscrits = reservationsCount[key]
+        ? reservationsCount[key].size
+        : 0
+
+      const placesMax = Number(s.places_max || 0)
+
+      const placesRestantes = Math.max(
+        placesMax - inscrits,
+        0
+      )
+
+      return {
+        ...s,
+        inscrits,
+        places_restantes: placesRestantes
+      }
+    })
+
+    setSeances(enriched)
   }
 
   useEffect(() => {
-    load()
+    fetchSeances()
   }, [])
-
-  const inscrire = async (seanceId: string) => {
-    const chienId = selected[seanceId]
-
-    if (!chienId) {
-      alert("Choisir un chien")
-      return
-    }
-
-    // 🔒 anti doublon côté FRONT
-    const seance = seances.find((s) => s.id === seanceId)
-
-    const already = seance?.reservations?.some(
-      (r: any) => r.chien_id === chienId
-    )
-
-    if (already) {
-      alert("Déjà inscrit")
-      return
-    }
-
-    const { error } = await supabase
-      .from("reservations")
-      .insert({
-        seance_id: seanceId,
-        chien_id: chienId,
-      })
-
-    if (error) {
-      console.log(error)
-      alert("Erreur inscription")
-      return
-    }
-
-    load()
-  }
-
-  const retirer = async (id: string) => {
-    const { error } = await supabase
-      .from("reservations")
-      .delete()
-      .eq("id", id)
-
-    if (error) {
-      alert("Erreur suppression")
-      return
-    }
-
-    load()
-  }
 
   return (
     <main style={{ padding: 30 }}>
-      <h1>📅 Séances K9-ER</h1>
+      <h1>📅 Séances</h1>
 
-      {seances.map((s) => {
-        const count = s.reservations?.length || 0
-        const max = s.place_max || 0
-        const full = max && count >= max
-        const closed = s.statut !== "ouverte"
+      {seances.length === 0 ? (
+        <p>Aucune séance</p>
+      ) : (
+        seances.map((s) => {
+          const complet = s.places_restantes === 0
 
-        return (
-          <div key={s.id} style={box}>
+          return (
+            <div
+              key={s.id}
+              style={{
+                background: "#242424",
+                border: "1px solid #2c322f",
+                padding: 14,
+                marginBottom: 12,
+                borderRadius: 8,
+                maxWidth: 650,
+                borderLeft: complet
+                  ? "3px solid #8b5a4a"
+                  : "3px solid #D2B48C",
+                opacity: complet ? 0.7 : 1
+              }}
+            >
+              <div style={{ fontWeight: 700 }}>
+                {s.type}
+              </div>
 
-            <strong>
-              🕒 {s.date} {s.heure} — {s.type}
-            </strong>
+              <div>
+                📅 {s.date} - ⏰ {s.heure}
+              </div>
 
-            <div>
-              🐕 {count}/{max || "∞"}{" "}
-              {full && "🔴 COMPLET"}{" "}
-              {closed && "⚫ FERMÉ"}
+              <div>
+                ⏳ {s.duree} min
+              </div>
+
+              <div>
+                🐕 {s.inscrits} / {s.places_max} chiens inscrits
+              </div>
+
+              <div>
+                Places restantes : {s.places_restantes}
+              </div>
+
+              <div>
+                Statut :{" "}
+                <span style={{ fontWeight: 600 }}>
+                  {complet ? "COMPLET" : "DISPONIBLE"}
+                </span>
+              </div>
+
+              <div style={{ marginTop: 10 }}>
+                <Link href={`/seances/${s.id}`}>
+                  Voir détails →
+                </Link>
+              </div>
             </div>
-
-            {/* LISTE INSCRITS */}
-            <div style={{ marginTop: 10 }}>
-              {s.reservations?.map((r: any) => {
-                const chien = chiens.find(
-                  (c) => c.id === r.chien_id
-                )
-
-                return (
-                  <div key={r.id} style={row}>
-                    🐕 {chien?.nom || "chien"}
-
-                    <button onClick={() => retirer(r.id)}>
-                      retirer
-                    </button>
-                  </div>
-                )
-              })}
-            </div>
-
-            {/* INSCRIPTION */}
-            <div style={{ marginTop: 10 }}>
-              <select
-                value={selected[s.id] || ""}
-                onChange={(e) =>
-                  setSelected({
-                    ...selected,
-                    [s.id]: e.target.value,
-                  })
-                }
-              >
-                <option value="">Choisir chien</option>
-                {chiens.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.nom}
-                  </option>
-                ))}
-              </select>
-
-              <button
-                disabled={full || closed}
-                onClick={() => inscrire(s.id)}
-                style={{ marginLeft: 10 }}
-              >
-                inscrire
-              </button>
-            </div>
-
-          </div>
-        )
-      })}
+          )
+        })
+      )}
     </main>
   )
-}
-
-const box: React.CSSProperties = {
-  border: "1px solid #ddd",
-  padding: 15,
-  marginBottom: 15,
-  borderRadius: 8,
-}
-
-const row: React.CSSProperties = {
-  display: "flex",
-  justifyContent: "space-between",
-  padding: 5,
 }
